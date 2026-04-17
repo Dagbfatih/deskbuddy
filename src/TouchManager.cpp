@@ -9,7 +9,8 @@ unsigned long pressStartTime = 0;
 bool isLongPressHandled = false;
 
 void initTouch() {
-  pinMode(TOUCH_PIN, INPUT);
+  // Keep the touch line stable when sensor/module is disconnected.
+  pinMode(TOUCH_PIN, INPUT_PULLDOWN);
 }
 
 void handleTouch() {

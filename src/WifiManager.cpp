@@ -4,26 +4,34 @@
 #include <Preferences.h>
 #include "Globals.h"
 #include "Config.h"
+#include "LogManager.h"
 
 Preferences prefs;
 WebServer configServer(80);
 
+static String readPrefString(const char* key, const String& fallback = "") {
+  if (!prefs.isKey(key)) return fallback;
+  return prefs.getString(key, fallback);
+}
+
 void loadConfig() {
-  prefs.begin("deskbuddy", true);
-  wifiSsid    = prefs.getString("ssid", "");
-  wifiPass    = prefs.getString("pass", "");
-  apiKey      = prefs.getString("apikey", "");
-  city        = prefs.getString("city", "");
-  countryCode = prefs.getString("country", "");
-  tzString    = prefs.getString("tz", "");
+  prefs.begin("deskbuddy", false);
+  wifiSsid    = readPrefString("ssid", "");
+  wifiPass    = readPrefString("pass", "");
+  apiKey      = readPrefString("apikey", "");
+  city        = readPrefString("city", "");
+  countryCode = readPrefString("country", "");
+  tzString    = readPrefString("tz", "");
   prefs.end();
+  LOG_WRITE("WiFi", "Config loaded from NVS");
   if (wifiSsid.isEmpty()) {
-    wifiSsid    = "edison science corner";
-    wifiPass    = "eeeeeeee";
+    wifiSsid    = "fatih";
+    wifiPass    = "12345678";
     apiKey      = "45fcf5807a5920e2006c2b8a077d423f";
     city        = "Idukki";
     countryCode = "IN";
     tzString    = "IST-5:30";
+    LOG_WRITE("WiFi", "Using default configuration");
   } else {
     if (apiKey.isEmpty())  apiKey = "45fcf5807a5920e2006c2b8a077d423f";
     if (city.isEmpty())    city = "Idukki";
@@ -42,15 +50,16 @@ void saveConfig(const String& s, const String& p, const String& ak,
   prefs.putString("country", ctry);
   prefs.putString("tz", tz);
   prefs.end();
+  LOG_WRITE("WiFi", "Configuration saved to NVS");
 }
 
 void handleConfigRoot() {
-  prefs.begin("deskbuddy", true);
-  String sSsid = prefs.getString("ssid", "");
-  String sApik = prefs.getString("apikey", "");
-  String sCity = prefs.getString("city", "Idukki");
-  String sCtry = prefs.getString("country", "IN");
-  String sTz   = prefs.getString("tz", "IST-5:30");
+  prefs.begin("deskbuddy", false);
+  String sSsid = readPrefString("ssid", "");
+  String sApik = readPrefString("apikey", "");
+  String sCity = readPrefString("city", "Idukki");
+  String sCtry = readPrefString("country", "IN");
+  String sTz   = readPrefString("tz", "IST-5:30");
   prefs.end();
 
   String html = R"rawliteral(
@@ -108,13 +117,14 @@ void handleConfigSave() {
   String cty = configServer.arg("city");
   String ctr = configServer.arg("country");
   String tz  = configServer.arg("tz");
-  prefs.begin("deskbuddy", true);
-  if (ak.isEmpty())  ak  = prefs.getString("apikey", "45fcf5807a5920e2006c2b8a077d423f");
-  if (cty.isEmpty()) cty = prefs.getString("city", "Idukki");
-  if (ctr.isEmpty()) ctr = prefs.getString("country", "IN");
-  if (tz.isEmpty())  tz  = prefs.getString("tz", "IST-5:30");
+  prefs.begin("deskbuddy", false);
+  if (ak.isEmpty())  ak  = readPrefString("apikey", "45fcf5807a5920e2006c2b8a077d423f");
+  if (cty.isEmpty()) cty = readPrefString("city", "Idukki");
+  if (ctr.isEmpty()) ctr = readPrefString("country", "IN");
+  if (tz.isEmpty())  tz  = readPrefString("tz", "IST-5:30");
   prefs.end();
   saveConfig(s, p, ak, cty, ctr, tz);
+  LOG_WRITE("ConfigPortal", "Settings saved, rebooting");
   configServer.send(200, "text/html",
     "<html><body style='font-family:sans-serif;background:#0c1929;color:#e8f4fc;padding:40px;'>"
     "<h2 style='color:#5ba3f5'>Saved!</h2><p>Rebooting in 2 seconds...</p></body></html>");
@@ -125,6 +135,7 @@ void handleConfigSave() {
 void handleConfigOffline() {
   inConfigMode = false;
   offlineMode = true;
+  LOG_WRITE("ConfigPortal", "Offline mode selected");
   configServer.send(200, "text/html",
     "<html><body style='font-family:sans-serif;background:#0c1929;color:#e8f4fc;padding:40px;'>"
     "<h2 style='color:#e74c3c'>Offline Mode</h2><p>Robot is starting without internet...</p></body></html>");
@@ -134,8 +145,19 @@ void handleConfigOffline() {
 
 void startConfigPortal() {
   inConfigMode = true;
+  LOG_WRITE("ConfigPortal", "Starting AP config portal");
+  WiFi.disconnect(true, true);
+  delay(100);
   WiFi.mode(WIFI_AP);
-  WiFi.softAP(CONFIG_AP_SSID, CONFIG_AP_PASS);
+  WiFi.setSleep(false);
+  WiFi.setTxPower(WIFI_POWER_19_5dBm);
+  delay(100);
+  bool apStarted = WiFi.softAP(CONFIG_AP_SSID, CONFIG_AP_PASS, 1, false, 4);
+  if (apStarted) {
+    LOG_WRITE("ConfigPortal", String("AP active, IP: ") + WiFi.softAPIP().toString());
+  } else {
+    LOG_ERROR("ConfigPortal", "Failed to start AP hotspot");
+  }
   configServer.on("/", handleConfigRoot);
   configServer.on("/save", HTTP_POST, handleConfigSave);
   configServer.on("/offline", HTTP_GET, handleConfigOffline);
@@ -145,19 +167,23 @@ void startConfigPortal() {
   display.setCursor(0, 0);
   display.print("Config mode\n\nConnect to:\n");
   display.print(CONFIG_AP_SSID);
-  display.print("\n\nThen open 192.168.4.1\nOr HOLD touch 3s");
+  display.print("\n\nOpen network\nThen open 192.168.4.1");
   display.display();
 }
 
 void connectWifi() {
+  LOG_WRITE("WiFi", String("Connecting to SSID: ") + wifiSsid);
   WiFi.begin(wifiSsid.c_str(), wifiPass.c_str());
   unsigned long wifiStart = millis();
   while (WiFi.status() != WL_CONNECTED && (millis() - wifiStart < 15000)) {
     delay(200);
   }
   if (WiFi.status() != WL_CONNECTED) {
+    LOG_ERROR("WiFi", "Connection timeout after 15 seconds");
     startConfigPortal();
+    return;
   }
+  LOG_WRITE("WiFi", String("Connected, IP: ") + WiFi.localIP().toString());
 }
 
 void handleWifiPortal() {

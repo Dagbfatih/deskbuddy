@@ -2,12 +2,12 @@
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
-#define SDA_PIN 21
-#define SCL_PIN 22
-#define TOUCH_PIN 4
+#define SDA_PIN 2
+#define SCL_PIN 3
+#define TOUCH_PIN 1
 
 #define CONFIG_AP_SSID   "DeskBuddy-Setup"
-#define CONFIG_AP_PASS   "12345678"
+#define CONFIG_AP_PASS   ""
 #define CONFIG_HOLD_MS   3000
 
 #define LONG_PRESS_TIME 800

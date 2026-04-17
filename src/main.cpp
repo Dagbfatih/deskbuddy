@@ -7,8 +7,21 @@
 #include "WeatherManager.h"
 #include "TouchManager.h"
 #include "DisplayManager.h"
+#include "LogManager.h"
+
+#ifndef SERIAL_DIAG_ONLY
+#define SERIAL_DIAG_ONLY 0
+#endif
 
 void setup() {
+#if SERIAL_DIAG_ONLY
+  Serial.begin(115200);
+  delay(3000);
+  Serial.println("BOOT STARTED");
+  return;
+#else
+  LOG_BEGIN(115200);
+  LOG_WRITE("Main", "Boot sequence started");
   Wire.begin(SDA_PIN, SCL_PIN);
   initTouch();
   display.begin(0x3C, true);
@@ -22,8 +35,10 @@ void setup() {
   }
 
   loadConfig();
+  LOG_WRITE("Main", "Configuration loaded");
 
   if (forceConfig) {
+    LOG_WRITE("Main", "Entering config mode by touch hold");
     startConfigPortal();
     return;
   }
@@ -40,8 +55,10 @@ void setup() {
   connectWifi();
   
   if (WiFi.status() != WL_CONNECTED) {
+    LOG_ERROR("Main", "WiFi connection failed, config portal started");
     return; // Already started config portal in connectWifi()
   }
+  LOG_WRITE("Main", "WiFi connected");
   
   configTime(0, 0, ntpServer);
   setenv("TZ", tzString.c_str(), 1);
@@ -49,34 +66,17 @@ void setup() {
   getWeatherAndForecast();
   lastWeatherUpdate = millis();
   lastPageSwitch = millis();
+#endif
 }
 
 void loop() {
+#if SERIAL_DIAG_ONLY
+  Serial.println("RUNNING");
+  delay(1000);
+  return;
+#else
   handleWifiPortal();
-
-  static unsigned long skipHoldStart = 0;
-  static bool wasTouchedConfig = false;
-
   if (inConfigMode) {
-    bool isTouched = digitalRead(TOUCH_PIN);
-    if (isTouched && !wasTouchedConfig) {
-      skipHoldStart = millis();
-    }
-    if (isTouched && (millis() - skipHoldStart > 3000)) {
-      // Offline mode trigger from hardware button
-      inConfigMode = false;
-      offlineMode = true;
-      WiFi.softAPdisconnect(true);
-      display.clearDisplay();
-      display.setFont(NULL);
-      display.setCursor(20, 30);
-      display.print("Offline Mode");
-      display.display();
-      delay(1000);
-      lastPageSwitch = millis();
-      currentPage = 0;
-    }
-    wasTouchedConfig = isTouched;
     return;
   }
 
@@ -109,4 +109,5 @@ void loop() {
     case 4: drawForecastPage(); break;
   }
   display.display();
+#endif
 }
